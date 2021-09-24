@@ -227,8 +227,8 @@ int main(void) {
         goto handleError;
     }
 
-    libusb_set_option(NULL, LIBUSB_OPTION_LOG_LEVEL, LIBUSB_LOG_LEVEL_DEBUG);
-    // libusb_set_option(NULL, LIBUSB_OPTION_LOG_LEVEL, LIBUSB_LOG_LEVEL_NONE);
+    // libusb_set_option(NULL, LIBUSB_OPTION_LOG_LEVEL, LIBUSB_LOG_LEVEL_DEBUG);
+    libusb_set_option(NULL, LIBUSB_OPTION_LOG_LEVEL, LIBUSB_LOG_LEVEL_WARNING);
 
     struct libusb_device_handle *dh = NULL; // The device handle
     dh = libusb_open_device_with_vid_pid(NULL, vendor_id, product_id);
@@ -301,6 +301,8 @@ int main(void) {
         int len = 0;
         if (current_time - prev_time > period) {
             prev_time = current_time;
+            printf("\nSend commands %ld ms...\n", current_time);
+
             res = libusb_interrupt_transfer(dh, 1, pingCmd, sizeof(pingCmd), &len, 10);
             if (res != LIBUSB_SUCCESS) {
                 printf("res = %d, len = %d\n", res, len);
@@ -312,6 +314,13 @@ int main(void) {
             if (res != LIBUSB_SUCCESS) {
                 printf("res = %d, len = %d\n", res, len);
                 fprintf(stdout,"\n\nERROR: Transfer hostControlCmd Error\n\n");
+                goto handleError;
+            }
+
+            res = libusb_interrupt_transfer(dh, 1, blue, sizeof(blue), &len, 10);
+            if (res != LIBUSB_SUCCESS) {
+                printf("res = %d, len = %d\n", res, len);
+                fprintf(stdout,"\n\nERROR: Transfer blue cmd Error\n\n");
                 goto handleError;
             }
         }
@@ -349,4 +358,5 @@ int main(void) {
     return 0;
 }
 
-// gcc -g script.c -L/usr/local/lib -lusb-1.0 -I/usr/local/include -o cScript
+// gcc -g script.c -lusb-1.0 -o usbTest
+// sudo ./usbTest
