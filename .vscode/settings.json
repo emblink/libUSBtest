@@ -1,0 +1,17 @@
+{
+    "files.associations": {
+        "unistd.h": "c",
+        "libusb.h": "c",
+        "*.tcc": "c",
+        "bit": "c",
+        "compare": "c",
+        "cstddef": "c",
+        "list": "c",
+        "string": "c",
+        "optional": "c",
+        "limits": "c",
+        "memory": "c",
+        "new": "c",
+        "functional": "c"
+    }
+}
