@@ -6,7 +6,6 @@
 #include </usr/include/libusb-1.0/libusb.h>
 #include <err.h>
 #include <time.h>
-#include <unistd.h>
 
 #define VENDOR_ID 0x1B1C
 #define PRODUCT_ID 0x1BAF
@@ -340,7 +339,7 @@ static libusb_device_handle * connect(uint16_t vid, uint16_t pid)
     // libusb_reset_device(dh);
     // if (res != LIBUSB_SUCCESS) {
     //     fprintf(stdout,"\n\nERROR: reset_device Error\n\n");
-    //     goto handleError;
+    //     return NULL;
     // }
 
     if (libusb_kernel_driver_active(dh, VENDOR_INTERFACE) == 1) {
@@ -358,11 +357,6 @@ static libusb_device_handle * connect(uint16_t vid, uint16_t pid)
     } else {
         fprintf(stdout,"\n\n Cannot Claim Interface!\n\n");
     }
-
-    // static int cbHandle = 0;
-    // libusb_hotplug_register_callback(NULL, LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT, LIBUSB_HOTPLUG_ENUMERATE,
-	//                                  VENDOR_ID, PRODUCT_ID, LIBUSB_HOTPLUG_MATCH_ANY,
-	//                                  hotplugCallback, NULL, &cbHandle);
 
     // libusb_set_configuration(dh, 0);
     // if (res != LIBUSB_SUCCESS) {
@@ -437,17 +431,26 @@ int main(void) {
     CMD cmd = СMD_READ_FW_VERSION;
 
     printf("Start script\n");
+    FILE *file = fopen("cnt.txt","w+");
+    if (file == NULL) {
+        fprintf(stdout, "\n\nCan't open a file!\n\n");
+    }
+    uint32_t runCounter = 0;
     while (1)
     {
         clock_t current_time = clock() / 1000;
     
         if (dev_handle != NULL && current_time - prev_time > period) {
             prev_time = current_time;
+            period = 100;
             
-            printf("\nTick %ld ms :", current_time);
+            printf("Tick %ld ms :", current_time);
             bool res = sendCommand(dev_handle, cmd);
             if (cmd == СMD_RESET_TO_DEFAULTS) {
-                sleep(1);
+                period = 1500;
+                runCounter++;
+                fseek(file, 0, SEEK_SET);
+                fprintf(file, "%u", runCounter);
             } else if (!res) {
                 goto handleError;
             }
@@ -463,6 +466,7 @@ int main(void) {
     libusb_attach_kernel_driver(dev_handle, VENDOR_INTERFACE);
     libusb_close(dev_handle);
     libusb_exit(NULL);
+    fclose(file);
     return 0;
 }
 
