@@ -6,6 +6,8 @@
 #include <time.h>
 
 #define VENDOR_INTERFACE 1
+#define VENDOR_IN_ENDPOINT 0x82
+#define VENDOR_OUT_ENDPOINT 0x01
 uint16_t vendor_id = 0x1B1C;
 uint16_t product_id = 0x1BAF;
 
@@ -232,6 +234,10 @@ int main(void) {
 
     struct libusb_device_handle *dh = NULL; // The device handle
     dh = libusb_open_device_with_vid_pid(NULL, vendor_id, product_id);
+    if (dh == NULL) {
+        fprintf(stdout,"\n\nERROR: libusb_open_device FAILED!\n\n");
+        exit(1);
+    }
 
     libusb_device *dev = libusb_get_device(dh);
     // print_device(dev, dh, 1);
@@ -288,10 +294,14 @@ int main(void) {
     // uint8_t blue[] = {0x00, 0x08, 0x01, 0x04, 0x00, 0x03, 0x00};
     // uint8_t reset[] = {0x00, 0x08, 0x0F, 0x00, 0x00, 0x00};
 
-    uint8_t pingCmd[] = {0x08, 0x12, 0x00, 0x00, 0x00};
-    uint8_t hostControlCmd[] = {0x08, 0x01, 0x03, 0x00, 0x02};
-    uint8_t blue[] = {0x08, 0x01, 0x04, 0x00, 0x03, 0x00};
-    uint8_t reset[] = {0x08, 0x0F, 0x00, 0x00, 0x00};
+	uint8_t readVid[1024] = {0x08, 0x02, 0x11, 0x00};
+    uint8_t pingCmd[1024] = {0x08, 0x12};
+    uint8_t hostControlCmd[1024] = {0x08, 0x01, 0x03, 0x00, 0x02};
+    uint8_t blue[1024] = {0x08, 0x01, 0x04, 0x00, 0x03, 0x00};
+    uint8_t white[1024] = {0x08, 0x01, 0x04, 0x00, 0x05};
+    uint8_t reset[1024] = {0x08, 0x0F, 0x00, 0x00, 0x00};
+
+    uint8_t reply[2048];
 
     clock_t prev_time = 0;
     clock_t period = 1000;
@@ -303,26 +313,61 @@ int main(void) {
             prev_time = current_time;
             printf("\nSend commands %ld ms...\n", current_time);
 
-            res = libusb_interrupt_transfer(dh, 1, pingCmd, sizeof(pingCmd), &len, 10);
+            res = libusb_interrupt_transfer(dh, VENDOR_OUT_ENDPOINT, hostControlCmd, sizeof(hostControlCmd), &len, 10);
             if (res != LIBUSB_SUCCESS) {
                 printf("res = %d, len = %d\n", res, len);
-                fprintf(stdout,"\n\nERROR: Transfer pingCmd Error\n\n");
+                fprintf(stdout,"\n\nERROR: Transfer readVid Error\n\n");
                 goto handleError;
             }
 
-            res = libusb_interrupt_transfer(dh, 1, hostControlCmd, sizeof(hostControlCmd), &len, 10);
+            res = libusb_interrupt_transfer(dh, VENDOR_IN_ENDPOINT, reply, 1024, &len, 100);
             if (res != LIBUSB_SUCCESS) {
                 printf("res = %d, len = %d\n", res, len);
-                fprintf(stdout,"\n\nERROR: Transfer hostControlCmd Error\n\n");
+                fprintf(stdout,"\n\nERROR: reply hostControlCmd Error\n\n");
                 goto handleError;
             }
 
-            res = libusb_interrupt_transfer(dh, 1, blue, sizeof(blue), &len, 10);
-            if (res != LIBUSB_SUCCESS) {
-                printf("res = %d, len = %d\n", res, len);
-                fprintf(stdout,"\n\nERROR: Transfer blue cmd Error\n\n");
-                goto handleError;
-            }
+            // res = libusb_interrupt_transfer(dh, VENDOR_OUT_ENDPOINT, pingCmd, sizeof(pingCmd), &len, 10);
+            // if (res != LIBUSB_SUCCESS) {
+            //     printf("res = %d, len = %d\n", res, len);
+            //     fprintf(stdout,"\n\nERROR: Transfer pingCmd Error\n\n");
+            //     goto handleError;
+            // }
+
+            // res = libusb_interrupt_transfer(dh, VENDOR_IN_ENDPOINT, reply, 3, &len, 100);
+            // if (res != LIBUSB_SUCCESS) {
+            //     printf("res = %d, len = %d\n", res, len);
+            //     fprintf(stdout,"\n\nERROR: reply pingCmd Error\n\n");
+            //     goto handleError;
+            // }
+
+            // res = libusb_interrupt_transfer(dh, VENDOR_OUT_ENDPOINT, hostControlCmd, sizeof(hostControlCmd), &len, 10);
+            // if (res != LIBUSB_SUCCESS) {
+            //     printf("res = %d, len = %d\n", res, len);
+            //     fprintf(stdout,"\n\nERROR: Transfer hostControlCmd Error\n\n");
+            //     goto handleError;
+            // }
+
+            // res = libusb_interrupt_transfer(dh, VENDOR_IN_ENDPOINT, reply, 3, &len, 100);
+            // if (res != LIBUSB_SUCCESS) {
+            //     printf("res = %d, len = %d\n", res, len);
+            //     fprintf(stdout,"\n\nERROR: reply hostControlCmd Error\n\n");
+            //     goto handleError;
+            // }
+
+            // res = libusb_interrupt_transfer(dh, VENDOR_OUT_ENDPOINT, white, sizeof(white), &len, 10);
+            // if (res != LIBUSB_SUCCESS) {
+            //     printf("res = %d, len = %d\n", res, len);
+            //     fprintf(stdout,"\n\nERROR: Transfer white cmd Error\n\n");
+            //     goto handleError;
+            // }
+
+            // res = libusb_interrupt_transfer(dh, VENDOR_IN_ENDPOINT, reply, 3, &len, 100);
+            // if (res != LIBUSB_SUCCESS) {
+            //     printf("res = %d, len = %d\n", res, len);
+            //     fprintf(stdout,"\n\nERROR: reply white cmd Error\n\n");
+            //     goto handleError;
+            // }
         }
 
         // len = 0;
