@@ -1,15 +1,18 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
+#include <assert.h>
 #include <unistd.h>
 #include </usr/include/libusb-1.0/libusb.h>
 #include <err.h>
 #include <time.h>
+#include <unistd.h>
 
+#define VENDOR_ID 0x1B1C
+#define PRODUCT_ID 0x1BAF
 #define VENDOR_INTERFACE 1
 #define VENDOR_IN_ENDPOINT 0x82
 #define VENDOR_OUT_ENDPOINT 0x01
-uint16_t vendor_id = 0x1B1C;
-uint16_t product_id = 0x1BAF;
 
 static void print_endpoint_comp(const struct libusb_ss_endpoint_companion_descriptor *ep_comp)
 {
@@ -221,27 +224,101 @@ static void print_device(libusb_device *dev, libusb_device_handle *handle, int v
 		libusb_close(handle);
 }
 
-int main(void) {
-    int res = libusb_init(NULL); // NULL is the default libusb_context
+typedef enum {
+    СMD_READ_FW_VERSION,
+    СMD_READ_BL_VERSION,
+    СMD_PING,
+    СMD_HOST_CONTROL,
+    СMD_LED_CALIBRATION,
+    СMD_COLOR_RED,
+    СMD_COLOR_GREEN,
+    СMD_COLOR_BLUE,
+    СMD_COLOR_WHITE,
+    СMD_COLOR_BLACK,
+    СMD_RESET_TO_DEFAULTS,
+    СMD_COLOR_COUNT,
+} CMD;
 
+static bool sendCommand(libusb_device_handle * const dev_handle, CMD cmd)
+{
+    uint8_t commands[][1024] = {
+        [СMD_READ_FW_VERSION] =     {0x08, 0x02, 0x13, 0x00, 0x00},
+        [СMD_READ_BL_VERSION] =     {0x08, 0x02, 0x14, 0x00, 0x00},
+        [СMD_PING] =                {0x08, 0x12},
+        [СMD_HOST_CONTROL] =        {0x08, 0x01, 0x03, 0x00, 0x02},
+        [СMD_LED_CALIBRATION] =     {0x08,0x04,0x04,0x00,0x05,
+                                    0x14,0x26,0x23,0x35,
+                                    0x28,0x48,0x5A,0x66,
+                                    0x3C,0x6C,0x99,0x99,
+                                    0x50,0x90,0xCC,0xCC,
+                                    0x64,0xB4,0xFF,0xFF},
+        [СMD_COLOR_RED] =           {0x08, 0x01, 0x04, 0x00, 0x02, 0x00},
+        [СMD_COLOR_GREEN] =         {0x08, 0x01, 0x04, 0x00, 0x03, 0x00},
+        [СMD_COLOR_BLUE] =          {0x08, 0x01, 0x04, 0x00, 0x04, 0x00},
+        [СMD_COLOR_WHITE] =         {0x08, 0x01, 0x04, 0x00, 0x05, 0x00},
+        [СMD_COLOR_BLACK] =         {0x08, 0x01, 0x04, 0x00, 0x01, 0x00},
+        [СMD_RESET_TO_DEFAULTS] =   {0x08, 0x0F, 0x00, 0x00, 0x00},
+    };
+	// uint8_t readVid[1024] = {0x08, 0x02, 0x11, 0x00};
+    const char * cmdName[] = {
+        "СMD_READ_FW_VERSION",
+        "СMD_READ_BL_VERSION",
+        "СMD_PING",
+        "СMD_HOST_CONTROL",
+        "СMD_LED_CALIBRATION",
+        "СMD_COLOR_RED",
+        "СMD_COLOR_GREEN",
+        "СMD_COLOR_BLUE",
+        "СMD_COLOR_WHITE",
+        "СMD_COLOR_BLACK",
+        "СMD_RESET_TO_DEFAULTS",
+        "СMD_COLOR_COUNT",
+    };
+
+    assert(cmd < СMD_COLOR_COUNT);
+    printf("Send command %s\n", cmdName[cmd]);
+    int len = 0;
+    int res = libusb_interrupt_transfer(dev_handle, VENDOR_OUT_ENDPOINT, commands[cmd], sizeof(commands[cmd]), &len, 10);
+    
     if (res != LIBUSB_SUCCESS) {
-        fprintf(stdout,"\n\nERROR: Cannot Initialize libusb\n\n");
-        goto handleError;
+        printf("res = %d, len = %d\n", res, len);
+        fprintf(stdout,"\n\nERROR: Transfer %s Error\n\n", cmdName[cmd]);
     }
 
-    // libusb_set_option(NULL, LIBUSB_OPTION_LOG_LEVEL, LIBUSB_LOG_LEVEL_DEBUG);
-    libusb_set_option(NULL, LIBUSB_OPTION_LOG_LEVEL, LIBUSB_LOG_LEVEL_WARNING);
+    uint8_t reply[1024] = {0};
+    res = libusb_interrupt_transfer(dev_handle, VENDOR_IN_ENDPOINT, reply, sizeof(reply), &len, 100);
+    if (res != LIBUSB_SUCCESS) {
+        printf("res = %d, len = %d\n", res, len);
+        fprintf(stdout,"\n\nERROR: reply %s Error\n\n", cmdName[cmd]);
+    } else {
+        // printf("reply res = %d, len = %d\n", res, len);
+        // for (int i = 0; i < len; i++) {
+        //     printf("%x ", reply[i]);
+        // }
+        // printf("\n");
+        printf("Reply OK\n");
+    }
+
+    return res == LIBUSB_SUCCESS;
+}
+
+struct libusb_device_handle *dev_handle = NULL;
+
+static libusb_device_handle * connect(uint16_t vid, uint16_t pid)
+{
+    printf("Establish connection...\n");
 
     struct libusb_device_handle *dh = NULL; // The device handle
-    dh = libusb_open_device_with_vid_pid(NULL, vendor_id, product_id);
+    dh = libusb_open_device_with_vid_pid(NULL, vid, pid);
     if (dh == NULL) {
         fprintf(stdout,"\n\nERROR: libusb_open_device FAILED!\n\n");
-        exit(1);
+        return NULL;
     }
+    printf("dev_handle == %p \n", dh);
 
     libusb_device *dev = libusb_get_device(dh);
     // print_device(dev, dh, 1);
-    res = libusb_get_device_speed(dev);
+    int res = libusb_get_device_speed(dev);
     if ((res < 0) || (res > 5)) {
         res = 0;
     }
@@ -250,14 +327,14 @@ int main(void) {
 	printf("\n\nDevice speed: %s\n", speed_name[res]);
 
     if (dh == NULL) {
-        fprintf(stdout,"\n\nERROR: Cannot connect to device %x\n\n", product_id);
-        goto handleError;
+        fprintf(stdout,"\n\nERROR: Cannot connect to device %x\n\n", pid);
+        return NULL;
     }
 
     res = libusb_set_auto_detach_kernel_driver(dh, 1);
     if (res != LIBUSB_SUCCESS) {
         fprintf(stdout,"\n\nERROR: auto_detach_kernel_driver Error\n\n");
-        goto handleError;
+        return NULL;
     }
 
     // libusb_reset_device(dh);
@@ -268,20 +345,24 @@ int main(void) {
 
     if (libusb_kernel_driver_active(dh, VENDOR_INTERFACE) == 1) {
         printf("Kernel Driver Active\n");
-        // if (libusb_detach_kernel_driver(dh, 0) == LIBUSB_SUCCESS) {
-        //     printf("Kernel Driver Detached!\n");
-        // } else {
-        //     fprintf(stdout, "\n\nKernel Driver Detach Failed!\n\n");
-        //     goto handleError;
-        // }
+        if (libusb_detach_kernel_driver(dh, 0) == LIBUSB_SUCCESS) {
+            printf("Kernel Driver Detached!\n");
+        } else {
+            fprintf(stdout, "\n\nKernel Driver Detach Failed!\n\n");
+        }
     }
 
-    printf("\nClaiming interface %d...\n", VENDOR_INTERFACE);
     res = libusb_claim_interface(dh, VENDOR_INTERFACE);
-    if (res != LIBUSB_SUCCESS) {
+    if (res == LIBUSB_SUCCESS) {
+        printf("Claim Interface OK!\n");
+    } else {
         fprintf(stdout,"\n\n Cannot Claim Interface!\n\n");
-        goto handleError;
     }
+
+    // static int cbHandle = 0;
+    // libusb_hotplug_register_callback(NULL, LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT, LIBUSB_HOTPLUG_ENUMERATE,
+	//                                  VENDOR_ID, PRODUCT_ID, LIBUSB_HOTPLUG_MATCH_ANY,
+	//                                  hotplugCallback, NULL, &cbHandle);
 
     // libusb_set_configuration(dh, 0);
     // if (res != LIBUSB_SUCCESS) {
@@ -289,116 +370,98 @@ int main(void) {
     //     goto handleError;
     // }
 
-    // uint8_t pingCmd[] = {0x00, 0x08, 0x12, 0x00, 0x00, 0x00};
-    // uint8_t hostControlCmd[] = {0x00, 0x08, 0x01, 0x03, 0x00, 0x02};
-    // uint8_t blue[] = {0x00, 0x08, 0x01, 0x04, 0x00, 0x03, 0x00};
-    // uint8_t reset[] = {0x00, 0x08, 0x0F, 0x00, 0x00, 0x00};
+    return dh;
+}
 
-	uint8_t readVid[1024] = {0x08, 0x02, 0x11, 0x00};
-    uint8_t pingCmd[1024] = {0x08, 0x12};
-    uint8_t hostControlCmd[1024] = {0x08, 0x01, 0x03, 0x00, 0x02};
-    uint8_t blue[1024] = {0x08, 0x01, 0x04, 0x00, 0x03, 0x00};
-    uint8_t white[1024] = {0x08, 0x01, 0x04, 0x00, 0x05};
-    uint8_t reset[1024] = {0x08, 0x0F, 0x00, 0x00, 0x00};
+int hotplug_callback(struct libusb_context *ctx, struct libusb_device *dev,
+                     libusb_hotplug_event event, void *user_data) {
+    
+    struct libusb_device_descriptor desc;
+    int res;
+    
+    (void)libusb_get_device_descriptor(dev, &desc);
 
-    uint8_t reply[2048];
-
-    clock_t prev_time = 0;
-    clock_t period = 1000;
-    while (1) {
-        clock_t current_time = clock() / 1000;
-        
-        int len = 0;
-        if (current_time - prev_time > period) {
-            prev_time = current_time;
-            printf("\nSend commands %ld ms...\n", current_time);
-
-            res = libusb_interrupt_transfer(dh, VENDOR_OUT_ENDPOINT, hostControlCmd, sizeof(hostControlCmd), &len, 10);
-            if (res != LIBUSB_SUCCESS) {
-                printf("res = %d, len = %d\n", res, len);
-                fprintf(stdout,"\n\nERROR: Transfer readVid Error\n\n");
-                goto handleError;
-            }
-
-            res = libusb_interrupt_transfer(dh, VENDOR_IN_ENDPOINT, reply, 1024, &len, 100);
-            if (res != LIBUSB_SUCCESS) {
-                printf("res = %d, len = %d\n", res, len);
-                fprintf(stdout,"\n\nERROR: reply hostControlCmd Error\n\n");
-                goto handleError;
-            }
-
-            // res = libusb_interrupt_transfer(dh, VENDOR_OUT_ENDPOINT, pingCmd, sizeof(pingCmd), &len, 10);
-            // if (res != LIBUSB_SUCCESS) {
-            //     printf("res = %d, len = %d\n", res, len);
-            //     fprintf(stdout,"\n\nERROR: Transfer pingCmd Error\n\n");
-            //     goto handleError;
-            // }
-
-            // res = libusb_interrupt_transfer(dh, VENDOR_IN_ENDPOINT, reply, 3, &len, 100);
-            // if (res != LIBUSB_SUCCESS) {
-            //     printf("res = %d, len = %d\n", res, len);
-            //     fprintf(stdout,"\n\nERROR: reply pingCmd Error\n\n");
-            //     goto handleError;
-            // }
-
-            // res = libusb_interrupt_transfer(dh, VENDOR_OUT_ENDPOINT, hostControlCmd, sizeof(hostControlCmd), &len, 10);
-            // if (res != LIBUSB_SUCCESS) {
-            //     printf("res = %d, len = %d\n", res, len);
-            //     fprintf(stdout,"\n\nERROR: Transfer hostControlCmd Error\n\n");
-            //     goto handleError;
-            // }
-
-            // res = libusb_interrupt_transfer(dh, VENDOR_IN_ENDPOINT, reply, 3, &len, 100);
-            // if (res != LIBUSB_SUCCESS) {
-            //     printf("res = %d, len = %d\n", res, len);
-            //     fprintf(stdout,"\n\nERROR: reply hostControlCmd Error\n\n");
-            //     goto handleError;
-            // }
-
-            // res = libusb_interrupt_transfer(dh, VENDOR_OUT_ENDPOINT, white, sizeof(white), &len, 10);
-            // if (res != LIBUSB_SUCCESS) {
-            //     printf("res = %d, len = %d\n", res, len);
-            //     fprintf(stdout,"\n\nERROR: Transfer white cmd Error\n\n");
-            //     goto handleError;
-            // }
-
-            // res = libusb_interrupt_transfer(dh, VENDOR_IN_ENDPOINT, reply, 3, &len, 100);
-            // if (res != LIBUSB_SUCCESS) {
-            //     printf("res = %d, len = %d\n", res, len);
-            //     fprintf(stdout,"\n\nERROR: reply white cmd Error\n\n");
-            //     goto handleError;
-            // }
+    if (LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED == event) {
+        printf("HOTPLUG_EVENT_DEVICE_ARRIVED\n");
+        dev_handle = connect(VENDOR_ID, PRODUCT_ID);
+        if (dev_handle == NULL) {
+            libusb_exit(NULL);
+            exit(1);
         }
-
-        // len = 0;
-        // res = libusb_interrupt_transfer(dh, 1, blue, sizeof(blue), &len, 10);
-        // if (res != LIBUSB_SUCCESS) {
-        //     printf("res = %d, len = %d\n", res, len);
-        //     fprintf(stdout,"\n\nERROR: Transfer blue cmd %d Error\n\n", i);
-        //     goto handleError;
-        // }
-
-        // len = 0;
-        // res = libusb_interrupt_transfer(dh, 1, reset, sizeof(reset), &len, 10);
-        // if (res != LIBUSB_SUCCESS) {
-        //     printf("res = %d, len = %d\n", res, len);
-        //     fprintf(stdout,"\n\nERROR: Transfer reset cmd %d Error\n\n", i);
-        //     goto handleError;
-        // }
+    } else if (LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT == event) {
+        printf("HOTPLUG_EVENT_DEVICE_LEFT\n");
+        if (dev_handle) {
+            libusb_release_interface(dev_handle, VENDOR_INTERFACE);
+            libusb_attach_kernel_driver(dev_handle, VENDOR_INTERFACE);
+            libusb_close(dev_handle);
+            dev_handle = NULL;
+        }
+    } else {
+        printf("Unhandled event %d\n", event);
     }
 
-    // res = libusb_release_interface(dh, VENDOR_INTERFACE);
-    // if(res != LIBUSB_SUCCESS) {
-    //     fprintf(1,"\n\nCannot Release Interface\n\n");
-    //     goto handleError;
-    // }
+    return 0;
+}
 
-    goto handleError;
+int main(void) {
+    int res = libusb_init(NULL); // NULL is the default libusb_context
+
+    if (res != LIBUSB_SUCCESS) {
+        fprintf(stdout,"\n\nERROR: Cannot Initialize libusb\n\n");
+        libusb_exit(NULL);
+        exit(1);
+    }
+
+    // libusb_set_option(NULL, LIBUSB_OPTION_LOG_LEVEL, LIBUSB_LOG_LEVEL_DEBUG);
+    libusb_set_option(NULL, LIBUSB_OPTION_LOG_LEVEL, LIBUSB_LOG_LEVEL_WARNING);
+
+    dev_handle = connect(VENDOR_ID, PRODUCT_ID);
+    if (dev_handle == NULL) {
+        libusb_exit(NULL);
+        exit(1);
+    }
+
+    libusb_hotplug_callback_handle callback_handle;
+    res = libusb_hotplug_register_callback(NULL, LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED |
+                                          LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT, 0, VENDOR_ID, PRODUCT_ID,
+                                          LIBUSB_HOTPLUG_MATCH_ANY, hotplug_callback, NULL,
+                                          &callback_handle);
+    if (res != LIBUSB_SUCCESS) {
+        fprintf(stdout, "\n\nError creating a hotplug callback!\n\n");
+        libusb_exit(NULL);
+        exit(1);
+    }
+
+    clock_t prev_time = 0;
+    clock_t period = 100;
+    CMD cmd = СMD_READ_FW_VERSION;
+
+    printf("Start script\n");
+    while (1)
+    {
+        clock_t current_time = clock() / 1000;
+    
+        if (dev_handle != NULL && current_time - prev_time > period) {
+            prev_time = current_time;
+            
+            printf("\nTick %ld ms :", current_time);
+            bool res = sendCommand(dev_handle, cmd);
+            if (cmd == СMD_RESET_TO_DEFAULTS) {
+                sleep(1);
+            } else if (!res) {
+                goto handleError;
+            }
+            cmd = (cmd + 1) % СMD_COLOR_COUNT;
+        }
+        struct timeval tv = {0 ,0};
+        libusb_handle_events_timeout_completed(NULL, &tv, NULL);
+    }
 
     handleError:
-    libusb_release_interface(dh, VENDOR_INTERFACE);
-    libusb_attach_kernel_driver(dh, VENDOR_INTERFACE);
-    libusb_close(dh);
+    libusb_hotplug_deregister_callback(NULL, callback_handle);
+    libusb_release_interface(dev_handle, VENDOR_INTERFACE);
+    libusb_attach_kernel_driver(dev_handle, VENDOR_INTERFACE);
+    libusb_close(dev_handle);
     libusb_exit(NULL);
     return 0;
 }
